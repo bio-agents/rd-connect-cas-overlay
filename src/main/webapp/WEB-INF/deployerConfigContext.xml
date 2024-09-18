@@ -1,0 +1,417 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+    Licensed to Apereo under one or more contributor license
+    agreements. See the NOTICE file distributed with this work
+    for additional information regarding copyright ownership.
+    Apereo licenses this file to you under the Apache License,
+    Version 2.0 (the "License"); you may not use this file
+    except in compliance with the License.  You may obtain a
+    copy of the License at the following location:
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing,
+    software distributed under the License is distributed on an
+    "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+    KIND, either express or implied.  See the License for the
+    specific language governing permissions and limitations
+    under the License.
+
+-->
+<!--
+| deployerConfigContext.xml centralizes into one file some of the declarative configuration that
+| all CAS deployers will need to modify.
+|
+| This file declares some of the Spring-managed JavaBeans that make up a CAS deployment.
+| The beans declared in this file are instantiated at context initialization time by the Spring
+| ContextLoaderListener declared in web.xml.  It finds this file because this
+| file is among those declared in the context parameter "contextConfigLocation".
+|
+| By far the most common change you will need to make in this file is to change the last bean
+| declaration to replace the default authentication handler with
+| one implementing your approach for authenticating usernames and passwords.
++-->
+
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:context="http://www.springframework.org/schema/context"
+       xmlns:p="http://www.springframework.org/schema/p"
+       xmlns:c="http://www.springframework.org/schema/c"
+       xmlns:tx="http://www.springframework.org/schema/tx"
+       xmlns:util="http://www.springframework.org/schema/util"
+       xmlns:sec="http://www.springframework.org/schema/security"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+       http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context.xsd
+       http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx.xsd
+       http://www.springframework.org/schema/security http://www.springframework.org/schema/security/spring-security.xsd
+       http://www.springframework.org/schema/util http://www.springframework.org/schema/util/spring-util.xsd">
+       
+	<context:component-scan base-package="org.jasig.cas" />
+	<context:annotation-config/>
+	
+    <!--
+       | The authentication manager defines security policy for authentication by specifying at a minimum
+       | the authentication handlers that will be used to authenticate credential. While the AuthenticationManager
+       | interface supports plugging in another implementation, the default PolicyBasedAuthenticationManager should
+       | be sufficient in most cases.
+       +-->
+    <bean id="authenticationManager" class="org.jasig.cas.authentication.PolicyBasedAuthenticationManager">
+        <constructor-arg>
+            <map>
+                <!--
+                   | IMPORTANT
+                   | Every handler requires a unique name.
+                   | If more than one instance of the same handler class is configured, you must explicitly
+                   | set its name to something other than its default name (typically the simple class name).
+                   -->
+                <entry key-ref="proxyAuthenticationHandler" value-ref="proxyPrincipalResolver" />
+                <!--	Comment active line and uncomment this one for naïve, hard coded authentication
+                <entry key-ref="primaryAuthenticationHandler" value-ref="primaryPrincipalResolver" />
+                -->
+                <!--	Comment active line and uncomment this one for relational database authentication
+                <entry key-ref="dbAuthHandler" value-ref="primaryPrincipalResolver" />
+                -->
+                <!--	Comment active line and uncomment this one for LDAP authentication -->
+                <entry key-ref="ldapAuthenticationHandler" value="#{null}" />
+            </map>
+        </constructor-arg>
+
+        <!-- Uncomment the metadata populator to capture the password.
+        <property name="authenticationMetaDataPopulators">
+           <util:list>
+               <bean class="org.jasig.cas.authentication.CacheCredentialsMetaDataPopulator"/>
+           </util:list>
+        </property>
+        -->
+
+        <!--
+           | Defines the security policy around authentication. Some alternative policies that ship with CAS:
+           |
+           | * NotPreventedAuthenticationPolicy - all credential must either pass or fail authentication
+           | * AllAuthenticationPolicy - all presented credential must be authenticated successfully
+           | * RequiredHandlerAuthenticationPolicy - specifies a handler that must authenticate its credential to pass
+           -->
+        <property name="authenticationPolicy">
+            <bean class="org.jasig.cas.authentication.AnyAuthenticationPolicy" />
+        </property>
+    </bean>
+
+
+
+	<!-- LDAP authentication -->
+	<!-- See http://jasig.github.io/cas/development/installation/LDAP-Authentication.html -->
+	<bean id="ldapAuthenticationHandler" class="org.jasig.cas.authentication.LdapAuthenticationHandler" p:principalIdAttribute="uid">
+		<constructor-arg ref="authenticator" />
+		<property name="principalAttributeMap">
+			<map>
+				<!--
+				   | This map provides a simple attribute resolution mechanism.
+				   | Keys are LDAP attribute names, values are CAS attribute names.
+				   | This facility can be used instead or in addition to PrincipalResolver
+				   | components.
+				   --> 
+				<entry key="uid" value="uid" />
+				<entry key="memberOf" value="memberOf" />
+				<entry key="dn" value="distinguishedName" />
+				<entry key="mail" value="email" />
+				<entry key="cn" value="fullname" />
+				<entry key="givenName" value="givename" />
+				<entry key="sn" value="surname" />
+				<entry key="disabledAccount" value="isDisabled" />
+				<entry key="userClass" value="userCategory" />
+			</map>
+		</property>
+	</bean>
+
+	<!--
+	   | This configuration uses a connection pool for both search and bind operations.
+	   | Pooling all operations is strongly recommended.
+	   -->
+	<bean id="authenticator" class="org.ldaptive.auth.Authenticator"
+		c:resolver-ref="pooledSearchDnResolver"
+		c:handler-ref="pooledBindHandler" />
+	
+	<!--
+	   | Contrast with org.ldaptive.auth.FormatDnResolver, which constructs bind DN
+	   | based on a format string using the username as input.
+	   | FormatDnResolver is preferable for directories that support it, such as Active Directory.
+	   -->
+	<bean id="pooledSearchDnResolver" class="org.ldaptive.auth.PooledSearchDnResolver"
+		p:baseDn="${ldap.authn.baseDn}"
+		p:subtreeSearch="true"
+		p:allowMultipleDns="false"
+		p:connectionFactory-ref="pooledLdapSearchConnectionFactory"
+		p:userFilter="${ldap.authn.searchFilter}" />
+
+	<bean id="pooledLdapSearchConnectionFactory" class="org.ldaptive.pool.PooledConnectionFactory"
+		p:connectionPool-ref="searchConnectionPool" />
+
+	<bean id="searchConnectionPool" class="org.ldaptive.pool.BlockingConnectionPool"
+		init-method="initialize"
+		destroy-method="close"
+		p:poolConfig-ref="ldapPoolConfig"
+		p:blockWaitTime="${ldap.pool.blockWaitTime}"
+		p:validator-ref="searchValidator"
+		p:pruneStrategy-ref="pruneStrategy"
+		p:connectionFactory-ref="connectionFactory" />
+
+	<bean id="pooledLdapServicesConnectionFactory" class="org.ldaptive.pool.PooledConnectionFactory"
+		p:connectionPool-ref="servicesConnectionPool" />
+
+	<bean id="servicesConnectionPool" class="org.ldaptive.pool.BlockingConnectionPool"
+		init-method="initialize"
+		destroy-method="close"
+		p:poolConfig-ref="ldapPoolConfig"
+		p:blockWaitTime="${ldap.pool.blockWaitTime}"
+		p:validator-ref="searchValidator"
+		p:pruneStrategy-ref="pruneStrategy"
+		p:connectionFactory-ref="connectionFactory" />
+
+	<bean id="pooledLdapConnectionFactory" class="org.ldaptive.pool.PooledConnectionFactory"
+		p:connectionPool-ref="connectionPool" />
+
+	<bean id="connectionPool" class="org.ldaptive.pool.BlockingConnectionPool"
+		init-method="initialize"
+		destroy-method="close"
+		p:poolConfig-ref="ldapPoolConfig"
+		p:blockWaitTime="${ldap.pool.blockWaitTime}"
+		p:validator-ref="searchValidator"
+		p:pruneStrategy-ref="pruneStrategy"
+		p:connectionFactory-ref="connectionFactory" />
+
+	<bean id="connectionFactory" class="org.ldaptive.DefaultConnectionFactory"
+		p:connectionConfig-ref="connectionConfig" />
+	
+	<!-- Alternate LDAP provider
+	<bean id="unboundidLdapProvider" class="org.ldaptive.provider.unboundid.UnboundIDProvider" />
+	
+	<bean id="connectionFactory" class="org.ldaptive.DefaultConnectionFactory"
+		p:connectionConfig-ref="connectionConfig"
+		p:provider-ref="unboundidLdapProvider" />
+	-->
+
+	<!--
+	   | NOTE:
+	   | The sslConfig property provides a route to configure custom key/trust stores.
+	   | The connectionInitializer property provides a means (possibly in addition to sslConfig)
+	   | to support SASL EXTERNAL binds.
+	   | See http://www.ldaptive.org/docs/guide/connections for more information.
+	   -->
+	<bean id="connectionConfig" class="org.ldaptive.ConnectionConfig"
+		p:ldapUrl="${ldap.url}"
+		p:connectTimeout="${ldap.connectTimeout}"
+		p:useSSL="${ldap.useSSL}"
+		p:useStartTLS="${ldap.useStartTLS}"
+		p:connectionInitializer-ref="bindConnectionInitializer"
+		p:sslConfig-ref="sslConfig" />
+
+	<bean id="bindConnectionInitializer"
+		class="org.ldaptive.BindConnectionInitializer"
+		p:bindDn="${ldap.managerDn}">
+		<property name="bindCredential">
+			<bean class="org.ldaptive.Credential"
+				c:password="${ldap.managerPassword}" />
+		</property>
+	</bean>
+
+	<bean id="sslConfig" class="org.ldaptive.ssl.SslConfig">
+		<property name="credentialConfig">
+			<bean class="org.ldaptive.ssl.X509CredentialConfig"
+				p:trustCertificates="${ldap.trustedCert}" />
+		</property>
+	</bean>
+
+	<bean id="pooledBindHandler" class="org.ldaptive.auth.PooledBindAuthenticationHandler"
+		p:connectionFactory-ref="pooledLdapConnectionFactory" />
+
+	<bean id="ldapPoolConfig" class="org.ldaptive.pool.PoolConfig"
+		p:minPoolSize="${ldap.pool.minSize}"
+		p:maxPoolSize="${ldap.pool.maxSize}"
+		p:validateOnCheckIn="${ldap.pool.validateOnCheckIn}"
+		p:validateOnCheckOut="${ldap.pool.validateOnCheckOut}"
+		p:validatePeriodically="${ldap.pool.validatePeriodically}"
+		p:validatePeriod="${ldap.pool.validatePeriod}" />
+
+	<bean id="pruneStrategy" class="org.ldaptive.pool.IdlePruneStrategy"
+		p:prunePeriod="${ldap.pool.prunePeriod}"
+		p:idleTime="${ldap.pool.idleTime}" />
+
+	<bean id="searchValidator" class="org.ldaptive.pool.SearchValidator" />
+	
+	<bean id="searchRequest"
+		class="org.ldaptive.SearchRequest"
+		p:baseDn="${ldap.authn.baseDn}"
+		p:searchFilter="${ldap.authn.searchFilter}" />
+
+	<!-- Login throttle -->
+	<bean id="loginThrottle"
+		class="org.jasig.cas.web.support.InMemoryThrottledSubmissionByIpAddressAndUsernameHandlerInterceptorAdapter"
+		p:failureRangeInSeconds="3"
+		p:failureThreshold="1" />
+
+	<bean id="loginThrottleJobDetail"
+		class="org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean"
+		p:targetObject-ref="loginThrottle"
+		p:targetMethod="decrementCounts"/>
+
+	<!-- A scheduler that drives all configured triggers is provided by default in applicationContext.xml. -->
+	<bean id="loginThrottleTrigger"
+		class="org.springframework.scheduling.quartz.SimpleTriggerFactoryBean"
+		p:jobDetail-ref="loginThrottleJobDetail"
+		p:startDelay="1000"
+		p:repeatInterval="1000"/>
+
+
+	<!-- OTP (when it is clear how to set it up) -->
+	<!--
+	<bean id="oneTimePasswordHandler"
+		class="com.example.cas.authentication.CustomOTPAuthenticationHandler"
+		p:name="oneTimePasswordHandler" />
+	-->
+	
+
+    <!-- Required for proxy ticket mechanism. -->
+    <bean id="proxyAuthenticationHandler"
+          class="org.jasig.cas.authentication.handler.support.HttpBasedServiceCredentialsAuthenticationHandler"
+          p:httpClient-ref="supportsTrustStoreSslSocketFactoryHttpClient" />
+
+    <!--
+       | TODO: Replace this component with one suitable for your enviroment.
+       |
+       | This component provides authentication for the kind of credential used in your environment. In most cases
+       | credential is a username/password pair that lives in a system of record like an LDAP directory.
+       | The most common authentication handler beans:
+       |
+       | * org.jasig.cas.authentication.LdapAuthenticationHandler
+       | * org.jasig.cas.adaptors.jdbc.QueryDatabaseAuthenticationHandler
+       | * org.jasig.cas.adaptors.x509.authentication.handler.support.X509CredentialsAuthenticationHandler
+       | * org.jasig.cas.support.spnego.authentication.handler.support.JCIFSSpnegoAuthenticationHandler
+       -->
+    <bean id="primaryAuthenticationHandler"
+          class="org.jasig.cas.authentication.AcceptUsersAuthenticationHandler">
+        <property name="users">
+            <map>
+                <entry key="casuser" value="Watermellon"/>
+                <entry key="rdconnect-test" value="1234.abcd"/>
+            </map>
+        </property>
+    </bean>
+
+    <!-- Required for proxy ticket mechanism -->
+    <bean id="proxyPrincipalResolver"
+          class="org.jasig.cas.authentication.principal.BasicPrincipalResolver" />
+
+    <!--
+       | Resolves a principal from a credential using an attribute repository that is configured to resolve
+       | against a deployer-specific store (e.g. LDAP).
+       -->
+    <bean id="primaryPrincipalResolver"
+          class="org.jasig.cas.authentication.principal.PersonDirectoryPrincipalResolver"
+          p:principalFactory-ref="principalFactory"
+          p:attributeRepository-ref="ldapAttributeRepository" />
+
+    <!--
+    Bean that defines the attributes that a service may return.  This example uses the Stub/Mock version.  A real implementation
+    may go against a database or LDAP server.  The id should remain "attributeRepository" though.
+    +-->
+    <bean id="attributeRepository" class="org.jasig.services.persondir.support.NamedStubPersonAttributeDao"
+          p:backingMap-ref="attrRepoBackingMap" />
+
+    <util:map id="attrRepoBackingMap">
+	<!--
+	   | This map provides a simple attribute resolution mechanism.
+	   | Keys are LDAP attribute names, values are CAS attribute names.
+	   | This facility can be used instead or in addition to PrincipalResolver
+	   | components.
+	   --> 
+	<entry key="uid" value="uid" />
+	<entry key="memberOf" value="memberOf" />
+	<entry key="dn" value="distinguishedName" />
+	<entry key="mail" value="email" />
+	<entry key="cn" value="fullname" />
+	<entry key="givenName" value="givename" />
+	<entry key="sn" value="surname" />
+	<entry key="disabledAccount" value="isDisabled" />
+	<entry key="userClass" value="userCategory" />
+    </util:map>
+
+	<!-- Searching on the subtree, so it is 2 -->
+	<bean id="attributeSearchControls"
+		class="javax.naming.directory.SearchControls"
+		p:searchScope="2"
+		p:derefLinkFlag="true"
+		/>
+
+	<bean id="attributeConnectionFactory" class="org.ldaptive.DefaultConnectionFactory"
+		p:connectionConfig-ref="connectionConfig" />
+	
+		<!--
+		p:connectionFactory-ref="connectionFactory"
+		-->
+	<bean id="ldapAttributeRepository"
+		class="org.jasig.services.persondir.support.ldap.LdaptivePersonAttributeDao"
+		p:connectionFactory-ref="attributeConnectionFactory"
+		p:baseDN="${ldap.authn.baseDn}"
+		p:searchControls-ref="attributeSearchControls"
+		p:requireAllQueryAttributes="false"
+		p:searchFilter="${ldap.authn.userSearchFilter}"
+		>
+		<property name="resultAttributeMapping">
+			<map>
+				<entry key="uid" value="uid" />
+				<entry key="memberOf" value="memberOf" />
+				<entry key="dn" value="distinguishedName" />
+				<entry key="mail" value="email" />
+				<entry key="cn" value="fullname" />
+				<entry key="givenName" value="givename" />
+				<entry key="sn" value="surname" />
+				<entry key="disabledAccount" value="isDisabled" />
+				<entry key="userClass" value="userCategory" />
+			</map>
+		</property>
+	</bean>
+    
+    <bean id="serviceRegistryDao" class="org.jasig.cas.services.JsonServiceRegistryDao"
+          c:configDirectory="${service.registry.config.location:classpath:services}" />
+
+
+	<!-- LDAP service registry -->
+	<!-- See http://jasig.github.io/cas/4.1.x/installation/Service-Management.html#ldapserviceregistrydao -->
+	<!-- See https://www.mail-archive.com/cas-user@lists.jasig.org/msg17287.html -->
+	<!-- We don't have to redefine the pooledLdapConnectionFactory here, as it is shared with the definitions above -->
+	<bean id="searchServiceRequest"
+		class="org.ldaptive.SearchRequest"
+		p:baseDn="${ldap.service.baseDn}"
+		p:searchFilter="${ldap.service.searchFilter}" />
+	
+	<bean id="serviceRegistryDaoLDAP"
+		class="org.jasig.cas.adaptors.ldap.services.LdapServiceRegistryDao"
+		init-method="init"
+		p:connectionFactory-ref="pooledLdapServicesConnectionFactory"
+		p:searchRequest-ref="searchServiceRequest"
+		p:ldapServiceMapper-ref="ldapMapper" />
+	
+	<bean id="ldapMapper"
+		class="org.jasig.cas.adaptors.ldap.services.DefaultLdapRegisteredServiceMapper"/>
+
+
+    <bean id="auditTrailManager" class="org.jasig.inspektr.audit.support.Slf4jLoggingAuditTrailManager" />
+
+    <bean id="healthCheckMonitor" class="org.jasig.cas.monitor.HealthCheckMonitor" p:monitors-ref="monitorsList" />
+
+    <util:list id="monitorsList">
+        <bean class="org.jasig.cas.monitor.MemoryMonitor" p:freeMemoryWarnThreshold="10" />
+        <!--
+          NOTE
+          The following ticket registries support SessionMonitor:
+            * DefaultTicketRegistry
+            * JpaTicketRegistry
+          Remove this monitor if you use an unsupported registry.
+        -->
+        <bean class="org.jasig.cas.monitor.SessionMonitor"
+              p:ticketRegistry-ref="ticketRegistry"
+              p:serviceTicketCountWarnThreshold="5000"
+              p:sessionCountWarnThreshold="100000" />
+    </util:list>
+</beans>

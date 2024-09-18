@@ -1,0 +1,248 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd ">
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>eu.rd-connect</groupId>
+    <artifactId>rdconnect-cas4-overlay</artifactId>
+    <packaging>war</packaging>
+    <version>0.7.2</version>
+	
+	<dependencyManagement>
+		<dependencies>
+			<!-- These dependencies are needed to avoid conflicts -->
+			<dependency>
+				<groupId>commons-logging</groupId>
+				<artifactId>commons-logging</artifactId>
+				<version>${commons-logging.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>xml-apis</groupId>
+				<artifactId>xml-apis</artifactId>
+				<version>${xml-apis.version}</version>
+			</dependency>
+			<!--
+				These two dependencies were added due
+				https://groups.google.com/forum/#!topic/jasig-cas-user/WsxxUHahrM8
+				Basically, with default version in CAS 4.1.1, LDAP attribute
+				names with capital letters are not recognized, being skipped
+			-->
+			<dependency>
+				<groupId>org.jasig.service.persondir</groupId>
+				<artifactId>person-directory-api</artifactId>
+				<version>${cas.person.directory.version}</version>
+			</dependency>
+			
+			<dependency>
+				<groupId>org.jasig.service.persondir</groupId>
+				<artifactId>person-directory-impl</artifactId>
+				<version>${cas.person.directory.version}</version>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
+	
+    <dependencies>
+	
+	<!-- These are the real dependencies -->
+	<dependency>
+	<groupId>org.jasig.cas</groupId>
+	<artifactId>cas-server-webapp</artifactId>
+	<version>${cas.version}</version>
+	<type>war</type>
+	<scope>runtime</scope>
+	</dependency>
+	
+	<dependency>
+	    <groupId>org.jasig.cas</groupId>
+	    <artifactId>cas-server-core</artifactId>
+	    <version>${cas.version}</version>
+	</dependency>
+
+	<dependency>
+	    <groupId>org.jasig.cas</groupId>
+	    <artifactId>cas-server-support-rest</artifactId>
+	    <version>${cas.version}</version>
+	    <scope>runtime</scope>
+	</dependency>
+	
+        <dependency>
+            <groupId>org.jasig.cas</groupId>
+            <artifactId>cas-server-support-ldap</artifactId>
+            <version>${cas.version}</version>
+        </dependency>
+        
+        <dependency>
+		<groupId>org.ldaptive</groupId>
+		<artifactId>ldaptive-unboundid</artifactId>
+		<version>1.0.7</version>
+        </dependency>
+        
+	<!-- These dependencies are only needed using SQLite as user accounts backend
+        <dependency>
+            <groupId>org.jasig.cas</groupId>
+            <artifactId>cas-server-support-jdbc</artifactId>
+            <version>${cas.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>c3p0</groupId>
+            <artifactId>c3p0</artifactId>
+            <version>0.9.1.2</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.xerial</groupId>
+            <artifactId>sqlite-jdbc</artifactId>
+            <version>${sqlite.jdbc.version}</version>
+        </dependency>
+        
+        <dependency>
+            <groupId>commons-dbcp</groupId>
+            <artifactId>commons-dbcp</artifactId>
+            <version>${commons.dbcp.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        
+        <dependency>
+	    <groupId>com.github.AlanKrueger</groupId>
+	    <artifactId>hibernate-sqlite-dialect</artifactId>
+	    <version>3b51dafafdbd9efe627ed7aae90b137dbb3fc072</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.hibernate</groupId>
+                    <artifactId>hibernate-core</artifactId>
+                </exclusion>
+            </exclusions>
+	</dependency>
+	-->
+	
+	<!--
+        <dependency>
+            <groupId>org.hibernate.dialect</groupId>
+            <artifactId>sqlite-dialect</artifactId>
+            <version>${sqlite.hibernate.dialect.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.hibernate</groupId>
+                    <artifactId>hibernate-core</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        -->
+	<dependency>
+	  <groupId>org.jasig.cas</groupId>
+	  <artifactId>cas-server-support-saml</artifactId>
+	  <version>${cas.version}</version>
+	</dependency>
+        
+        <dependency>
+            <groupId>javax.servlet</groupId>
+            <artifactId>javax.servlet-api</artifactId>
+            <version>3.1.0</version>
+            <scope>provided</scope>
+        </dependency>
+        
+	<!-- This is needed to get asynchronous logging -->
+	<dependency>
+		<groupId>com.lmax</groupId>
+		<artifactId>disruptor</artifactId>
+		<version>3.3.7</version>
+	</dependency>
+	
+	<!-- This is needed to send backups to a PostgreSQL instance -->
+	<dependency>
+		<groupId>org.postgresql</groupId>
+		<artifactId>postgresql</artifactId>
+		<!-- remove .jre7 postfix when jre8 is used -->
+		<version>42.1.4</version>
+	</dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-war-plugin</artifactId>
+                <version>2.6</version>
+                <configuration>
+                    <warName>cas</warName>
+                    <overlays>
+                        <overlay>
+                            <groupId>org.jasig.cas</groupId>
+                            <artifactId>cas-server-webapp</artifactId>
+                            <excludes>
+                                <exclude>WEB-INF/classes/log4j2.xml</exclude>
+                                <!--
+                                <exclude>WEB-INF/cas.properties</exclude>
+                                <exclude>WEB-INF/lib/hibernate-*.jar</exclude>
+                                -->
+                                <exclude>WEB-INF/lib/person-directory-*.jar</exclude>
+                                <exclude>WEB-INF/lib/bcprov-*.jar</exclude>
+                            </excludes>
+                        </overlay>
+                    </overlays>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.3</version>
+                <configuration>
+                    <source>${maven.compiler.source}</source>
+                    <target>${maven.compiler.target}</target>
+                </configuration>
+            </plugin>
+            <!--
+            <plugin>
+                <groupId>com.ejwa</groupId>
+                <artifactId>maven-gitdep-plugin</artifactId>
+                <version>0.1</version>
+                <configuration>
+                    <gitDependencies>
+                        <gitDependency>
+                            <groupId>org.hibernate.dialect</groupId>
+                            <artifactId>sqlite-dialect</artifactId>
+                            <location>https://github.com/gwenn/sqlite-dialect.git</location>
+                            <branch>master</branch>
+                        </gitDependency>
+                    </gitDependencies>
+                </configuration>
+            </plugin>
+            -->
+        </plugins>
+        <finalName>cas</finalName>
+    </build>
+
+    <properties>
+        <cas.version>4.1.7</cas.version>
+        <cas.person.directory.version>1.7.1</cas.person.directory.version>
+        <commons.dbcp.version>1.4</commons.dbcp.version>
+        <maven.compiler.source>1.7</maven.compiler.source>
+        <maven.compiler.target>1.7</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <sqlite.hibernate.dialect.version>0.1.0</sqlite.hibernate.dialect.version>
+        <sqlite.jdbc.version>3.8.11.1</sqlite.jdbc.version>
+        <!-- These come from CAS dependencies -->
+        <commons-logging.version>1.2</commons-logging.version>
+        <xml-apis.version>1.4.01</xml-apis.version>
+    </properties>
+
+    <repositories>
+        <repository>
+            <id>sonatype-releases</id>
+            <url>http://oss.sonatype.org/content/repositories/releases/</url>
+        </repository>
+        <repository>
+            <id>sonatype-snapshots</id>
+            <url>https://oss.sonatype.org/content/repositories/snapshots/</url>
+        </repository>
+        <repository>
+            <id>jitpack.io</id>
+            <url>https://jitpack.io</url>
+        </repository>
+	<repository>
+        	<id>shibboleth-releases</id>
+        	<url>https://build.shibboleth.net/nexus/content/repositories/releases</url>
+    	</repository>
+    </repositories>
+</project>
